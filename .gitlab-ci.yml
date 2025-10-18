@@ -1,0 +1,25 @@
+stages:
+  - test
+
+load_test:
+  stage: test
+  image: justb4/jmeter:5.5  # Official Docker image with JMeter
+  script:
+    - jmeter -n -t load-test.jmx -l result.jtl -e -o report
+    - >
+      avg_time=$(awk -F',' 'NR>1 {sum+=$2; count++} END {if(count>0) print sum/count; else print 0}' <(awk -F',' '{print $1","$2}' result.jtl))
+    - echo "Average response time: $avg_time ms"
+    - >
+      if (( $(echo "$avg_time > 200" | bc -l) )); then
+        echo "FAILED: Avg response time exceeds 200ms";
+        exit 1;
+      else
+        echo "PASSED: Avg response time is within acceptable limits";
+      fi
+  artifacts:
+    paths:
+      - result.jtl
+      - report/
+    when: always
+  only:
+    - master  # Or your main branch name
