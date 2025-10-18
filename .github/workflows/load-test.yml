@@ -2,32 +2,48 @@ name: Load Test Pipeline
 
 on:
   push:
-    branches:
-      - master  # This triggers the workflow on push to the master branch
+  pull_request:
 
 jobs:
-  load-test:
-    runs-on: ubuntu-latest  # Runs on an Ubuntu environment
+  jmeter-test:
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v2  # Pull the latest code from your repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up JMeter Docker image
-      uses: docker://justb4/jmeter:5.5  # Use the official JMeter Docker image
+      - name: Install JMeter
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-11-jre-headless wget bc
+          wget https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.2.tgz
+          tar -xzf apache-jmeter-5.6.2.tgz
+          export JMETER_HOME=$PWD/apache-jmeter-5.6.2
+          export PATH=$JMETER_HOME/bin:$PATH
+          jmeter --version
 
-    - name: Run JMeter Load Test
-      run: |
-        jmeter -n -t Load_Testing.jmx -l result.jtl -e -o report  # Run your JMeter test
+      - name: Run JMeter Load Test
+        run: |
+          echo "Running JMeter test..."
+          jmeter -n -t "Stress-Test-InventoryManagement-Login.jmx" -l result.jtl
 
-    - name: Check response time threshold
-      run: |
-        avg_time=$(awk -F',' 'NR>1 {sum+=$2; count++} END {if(count>0) print sum/count; else print 0}' <(awk -F',' '{print $1","$2}' result.jtl))
-        echo "Average response time: $avg_time ms"
-        
-        if (( $(echo "$avg_time > 200" | bc -l) )); then
-          echo "FAILED: Avg response time exceeds 200ms"
-          exit 1  # Fail the pipeline if the response time exceeds 200ms
-        else
-          echo "PASSED: Avg response time is within acceptable limits"
-        fi
+      - name: Check response time threshold
+        shell: bash
+        run: |
+          # Calculate the average response time from result.jtl
+          avg_time=$(awk -F',' 'NR>1 {sum+=$2; count++} END {if(count>0) print sum/count; else print 0}' result.jtl)
+          echo "Average response time: $avg_time ms"
+
+          # Compare average response time against 200 ms threshold
+          if (( $(echo "$avg_time > 200" | bc -l) )); then
+            echo "❌ FAILED: Avg response time exceeds 200ms"
+            exit 1  # Fail the pipeline (red)
+          else
+            echo "✅ PASSED: Avg response time is within acceptable limits"
+          fi
+
+      - name: Upload Test Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-results
+          path: result.jtl
